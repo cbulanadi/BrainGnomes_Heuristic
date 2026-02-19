@@ -28,6 +28,50 @@ def _task_run_match(desc, task, run_num):
     return any(re.search(p, desc) for p in patterns)
 
 
+def _as_lower_text(value):
+    if not value:
+        return ""
+    if isinstance(value, (tuple, list)):
+        return " ".join(str(v) for v in value).lower()
+    return str(value).lower()
+
+
+def _is_probable_dwi(desc, s):
+    """
+    Keep only true diffusion series for *_dwi outputs to avoid
+    VOLUME_COUNT_MISMATCH from assigning non-diffusion PA/AP scans.
+    """
+    full_text = " ".join(
+        [
+            desc,
+            _as_lower_text(getattr(s, "protocol_name", "")),
+            _as_lower_text(getattr(s, "sequence_name", "")),
+            _as_lower_text(getattr(s, "image_type", "")),
+        ]
+    )
+
+    excluded_terms = (
+        "distortionmap",
+        "fieldmap",
+        "topup",
+        "fmap",
+        "sbref",
+        "trace",
+        "adc",
+        "fa",
+        "md",
+    )
+    if any(term in full_text for term in excluded_terms):
+        return False
+
+    dim4 = int(getattr(s, "dim4", 0) or 0)
+    # True dMRI should have many volumes; avoid sending short AP/PA map scans to dwi.
+    if dim4 < 10:
+        return False
+
+    return "dmri" in full_text or "dwi" in full_text
+
+
 def infotodict(seqinfo):
     # IMPORTANT:
     # Use {session} directly (do NOT prepend ses-), because in this project
@@ -45,8 +89,9 @@ def infotodict(seqinfo):
     task_rest_1 = create_key("sub-{subject}/{session}/func/sub-{subject}_{session}_task-rest_run-01_bold")
     task_rest_2 = create_key("sub-{subject}/{session}/func/sub-{subject}_{session}_task-rest_run-02_bold")
 
-    dwi_ap = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-AP_dwi")
-    dwi_pa = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-PA_dwi")
+    # Include run-{item:02d} to prevent multiple AP/PA diffusion series from colliding.
+    dwi_ap = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-AP_run-{item:02d}_dwi")
+    dwi_pa = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-PA_run-{item:02d}_dwi")
 
     fmap_ap = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-AP_epi")
     fmap_pa = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-PA_epi")
@@ -104,9 +149,9 @@ def infotodict(seqinfo):
             info[fmap_pa].append(s.series_id)
 
         # Diffusion
-        elif "dmri_ap" in desc:
+        elif ("dmri_ap" in desc or "dwi_ap" in desc) and _is_probable_dwi(desc, s):
             info[dwi_ap].append(s.series_id)
-        elif "dmri_pa" in desc:
+        elif ("dmri_pa" in desc or "dwi_pa" in desc) and _is_probable_dwi(desc, s):
             info[dwi_pa].append(s.series_id)
 
         # Anatomical
