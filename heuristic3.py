@@ -5,11 +5,48 @@ CogMAP heuristic for HeuDiConv (session-safe, stricter matching)
 
 import re
 
-# Auto-populate IntendedFor for fmaps using closest match and acquisition labels
+# Auto-populate IntendedFor for fmaps using acquisition labels.
+#
+# NOTE:
+# Some sessions can yield sidecars with AcquisitionTime="n/a" (for example when
+# dcmstack embedding fails on missing PixelSpacing in source DICOM metadata).
+# HeuDiConv's "Closest" criterion requires parsing AcquisitionTime and raises:
+#   ValueError: Unable to parse datetime string: n/a
+# Using "First" avoids datetime parsing while still assigning IntendedFor
+# within compatible acquisition groups.
 POPULATE_INTENDED_FOR_OPTS = {
     "matching_parameters": ["CustomAcquisitionLabel"],
-    "criterion": "Closest",
+    "criterion": "First",
 }
+
+
+
+
+def filter_dicom(dcm_data):
+    """
+    Exclude problematic instances before conversion/metadata embedding.
+
+    This specifically guards against dcmstack failures like:
+        KeyError: 'PixelSpacing'
+    seen in the embedder node for some functional/diffusion runs.
+
+    We drop:
+      - DICOMs with missing PixelSpacing
+      - DERIVED non-primary images (for example motion-corrected derivatives)
+    """
+
+    # Missing spacing metadata can crash dcmstack congruency checks.
+    if not getattr(dcm_data, "PixelSpacing", None):
+        return True
+
+    image_type = getattr(dcm_data, "ImageType", None) or []
+    image_type_upper = {str(v).upper() for v in image_type}
+
+    # Keep primary images, drop non-primary derived images.
+    if "DERIVED" in image_type_upper and "PRIMARY" not in image_type_upper:
+        return True
+
+    return False
 
 
 def create_key(template, outtype=("nii.gz",), annotation_classes=None):
