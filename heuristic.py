@@ -321,11 +321,30 @@ def tuneup_bids_json_files(json_files):
     REPETITION_TIME_AND_ACQUISITION_DURATION_MUTUALLY_EXCLUSIVE.
     Keep RepetitionTime and remove AcquisitionDuration whenever both are
     present in the same sidecar.
+
+    HeuDiConv may pass only newly-created JSONs to this hook. When rerunning
+    partial conversions (for example, a single session), older sidecars under
+    the same session might still carry AcquisitionDuration. To keep reruns
+    stable, also sweep sibling JSON sidecars in the same session tree.
     """
-    for json_file in json_files:
-        path = Path(json_file)
+
+    def _remove_non_bids_duplicate(path):
+        """Delete accidental fallback files like *_bold1(.json/.nii.gz)."""
+        if not re.search(r"_bold\d+\.json$", path.name):
+            return False
+
+        stem = path.name[:-5]  # drop .json
+        nii = path.with_name(f"{stem}.nii.gz")
+        for extra in (path, nii):
+            if extra.exists():
+                extra.unlink()
+        return True
+
+    def _cleanup_sidecar(path):
         if not path.exists():
-            continue
+            return
+        if _remove_non_bids_duplicate(path):
+            return
 
         with path.open("r", encoding="utf-8") as fobj:
             sidecar = json.load(fobj)
@@ -335,3 +354,32 @@ def tuneup_bids_json_files(json_files):
             with path.open("w", encoding="utf-8") as fobj:
                 json.dump(sidecar, fobj, indent=2, sort_keys=True)
                 fobj.write("\n")
+
+    # De-duplicate while preserving order.
+    direct_paths = []
+    seen = set()
+    for json_file in json_files:
+        path = Path(json_file)
+        if path in seen:
+            continue
+        seen.add(path)
+        direct_paths.append(path)
+
+    for path in direct_paths:
+        _cleanup_sidecar(path)
+
+    # Also sanitize all JSON sidecars in the same sub-*/ses-* tree so reruns
+    # don't leave older files with mutually-exclusive metadata.
+    session_roots = set()
+    for path in direct_paths:
+        parts = path.parts
+        for idx, part in enumerate(parts):
+            if part.startswith("ses-") and idx > 0 and parts[idx - 1].startswith("sub-"):
+                session_roots.add(Path(*parts[: idx + 1]))
+                break
+
+    for root in sorted(session_roots):
+        if not root.exists() or not root.is_dir():
+            continue
+        for sidecar in root.rglob("*.json"):
+            _cleanup_sidecar(sidecar)
