@@ -34,6 +34,26 @@ def _as_lower_text(value):
     return str(value).lower()
 
 
+def _is_derived_or_secondary(s):
+    """
+    Avoid assigning non-primary or derived images (which can trigger conversion
+    failures like missing PixelSpacing and duplicate output collisions).
+    """
+    image_type = _as_lower_text(getattr(s, "image_type", ""))
+    bad_tokens = ("derived", "secondary", "localizer", "scout", "moco")
+    return any(tok in image_type for tok in bad_tokens)
+
+
+def _is_plausible_image_series(s):
+    """Basic sanity filter for real image volumes."""
+    if _is_derived_or_secondary(s):
+        return False
+
+    dim1 = int(getattr(s, "dim1", 0) or 0)
+    dim2 = int(getattr(s, "dim2", 0) or 0)
+    return dim1 >= 32 and dim2 >= 32
+
+
 def _is_probable_dwi(desc, s):
     """
     Keep only true diffusion series for *_dwi outputs to avoid
@@ -67,14 +87,23 @@ def _is_probable_dwi(desc, s):
     if dim4 < 10:
         return False
 
-    return "dmri" in full_text or "dwi" in full_text
+    return ("dmri" in full_text or "dwi" in full_text) and _is_plausible_image_series(s)
+
+
+def _append_once(info, key, series_id):
+    """
+    Prevent duplicate writes to fixed output names (for example T1w, run-01,
+    run-02), which can otherwise fail with destination-already-exists.
+    """
+    if not info[key]:
+        info[key].append(series_id)
 
 
 def infotodict(seqinfo):
     # IMPORTANT:
     # Use {session} directly (do NOT prepend ses-), because in this project
     # session is already coming through as ses-01 / ses-02.
-    t1w = create_key("sub-{subject}/{session}/anat/sub-{subject}_{session}_T1w")
+    t1w = create_key("sub-{subject}/{session}/anat/sub-{subject}_{session}_run-{item:02d}_T1w")
 
     task_ccf_1 = create_key("sub-{subject}/{session}/func/sub-{subject}_{session}_task-ccf_run-01_bold")
     task_ccf_2 = create_key("sub-{subject}/{session}/func/sub-{subject}_{session}_task-ccf_run-02_bold")
@@ -124,27 +153,31 @@ def infotodict(seqinfo):
         if "localizer" in desc or "scout" in desc:
             continue
 
+        # Skip non-primary/derived or non-image-like series early.
+        if not _is_plausible_image_series(s):
+            continue
+
         # Fieldmaps first (to avoid accidental task matches)
         if "distortionmap" in desc and "ap" in desc and "ccf" in desc:
-            info[fmap_ap_ccf].append(s.series_id)
+            _append_once(info, fmap_ap_ccf, s.series_id)
         elif "distortionmap" in desc and "pa" in desc and "ccf" in desc:
-            info[fmap_pa_ccf].append(s.series_id)
+            _append_once(info, fmap_pa_ccf, s.series_id)
         elif "distortionmap" in desc and "ap" in desc and "rise" in desc:
-            info[fmap_ap_rise].append(s.series_id)
+            _append_once(info, fmap_ap_rise, s.series_id)
         elif "distortionmap" in desc and "pa" in desc and "rise" in desc:
-            info[fmap_pa_rise].append(s.series_id)
+            _append_once(info, fmap_pa_rise, s.series_id)
         elif "distortionmap" in desc and "ap" in desc and "dpx" in desc:
-            info[fmap_ap_dpx].append(s.series_id)
+            _append_once(info, fmap_ap_dpx, s.series_id)
         elif "distortionmap" in desc and "pa" in desc and "dpx" in desc:
-            info[fmap_pa_dpx].append(s.series_id)
+            _append_once(info, fmap_pa_dpx, s.series_id)
         elif "distortionmap" in desc and "ap" in desc and "emo" in desc:
-            info[fmap_ap_emo].append(s.series_id)
+            _append_once(info, fmap_ap_emo, s.series_id)
         elif "distortionmap" in desc and "pa" in desc and "emo" in desc:
-            info[fmap_pa_emo].append(s.series_id)
+            _append_once(info, fmap_pa_emo, s.series_id)
         elif "distortionmap" in desc and "ap" in desc:
-            info[fmap_ap].append(s.series_id)
+            _append_once(info, fmap_ap, s.series_id)
         elif "distortionmap" in desc and "pa" in desc:
-            info[fmap_pa].append(s.series_id)
+            _append_once(info, fmap_pa, s.series_id)
 
         # Diffusion
         elif ("dmri_ap" in desc or "dwi_ap" in desc) and _is_probable_dwi(desc, s):
@@ -158,24 +191,24 @@ def infotodict(seqinfo):
 
         # Functional tasks
         elif _task_run_match(desc, "ccf", 1):
-            info[task_ccf_1].append(s.series_id)
+            _append_once(info, task_ccf_1, s.series_id)
         elif _task_run_match(desc, "ccf", 2):
-            info[task_ccf_2].append(s.series_id)
+            _append_once(info, task_ccf_2, s.series_id)
         elif _task_run_match(desc, "rise", 1):
-            info[task_rise_1].append(s.series_id)
+            _append_once(info, task_rise_1, s.series_id)
         elif _task_run_match(desc, "rise", 2):
-            info[task_rise_2].append(s.series_id)
+            _append_once(info, task_rise_2, s.series_id)
         elif _task_run_match(desc, "dpx", 1):
-            info[task_dpx_1].append(s.series_id)
+            _append_once(info, task_dpx_1, s.series_id)
         elif _task_run_match(desc, "dpx", 2):
-            info[task_dpx_2].append(s.series_id)
+            _append_once(info, task_dpx_2, s.series_id)
         elif _task_run_match(desc, "emo", 1):
-            info[task_emo_1].append(s.series_id)
+            _append_once(info, task_emo_1, s.series_id)
         elif _task_run_match(desc, "emo", 2):
-            info[task_emo_2].append(s.series_id)
+            _append_once(info, task_emo_2, s.series_id)
         elif _task_run_match(desc, "rest", 1):
-            info[task_rest_1].append(s.series_id)
+            _append_once(info, task_rest_1, s.series_id)
         elif _task_run_match(desc, "rest", 2):
-            info[task_rest_2].append(s.series_id)
+            _append_once(info, task_rest_2, s.series_id)
 
     return info
