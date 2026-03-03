@@ -5,10 +5,18 @@ CogMAP heuristic for HeuDiConv (session-safe, stricter matching)
 
 import re
 
-# Auto-populate IntendedFor for fmaps using closest match and acquisition labels
+# Auto-populate IntendedFor for fmaps using acquisition labels.
+#
+# NOTE:
+# Some sessions can yield sidecars with AcquisitionTime="n/a" (for example when
+# dcmstack embedding fails on missing PixelSpacing in source DICOM metadata).
+# HeuDiConv's "Closest" criterion requires parsing AcquisitionTime and raises:
+#   ValueError: Unable to parse datetime string: n/a
+# Using "First" avoids datetime parsing while still assigning IntendedFor
+# within compatible acquisition groups.
 POPULATE_INTENDED_FOR_OPTS = {
     "matching_parameters": ["CustomAcquisitionLabel"],
-    "criterion": "Closest",
+    "criterion": "First",
 }
 
 
