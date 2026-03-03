@@ -101,6 +101,64 @@ def _append_once(info, key, series_id):
         info[key].append(series_id)
 
 
+def _sanitize_bids_label(value):
+    """Convert arbitrary text into a safe BIDS entity label fragment."""
+    text = _as_lower_text(value)
+    cleaned = re.sub(r"[^a-z0-9]+", "", text)
+    return cleaned
+
+
+def infotoids(seqinfos, outdir=None):
+    """
+    Populate subject/session/locator IDs from sequence metadata when available.
+
+    This suppresses heudiconv's fallback warning about missing ``infotoids`` and
+    ensures conversions remain stable across all subject IDs even when command
+    line ``-s/-ss`` values are not explicitly provided.
+    """
+    if not seqinfos:
+        return {"locator": "cogmap", "session": "ses-01"}
+
+    first = seqinfos[0]
+
+    # Subject: prefer explicit DICOM fields, then fallback to first numeric token.
+    subject_raw = (
+        getattr(first, "patient_id", None)
+        or getattr(first, "patient_name", None)
+        or getattr(first, "study_description", None)
+        or ""
+    )
+    subject_label = _sanitize_bids_label(subject_raw)
+    if not subject_label:
+        description = _as_lower_text(getattr(first, "series_description", ""))
+        match = re.search(r"\b(\d{3,})\b", description)
+        if match:
+            subject_label = match.group(1)
+
+    # Session: keep existing ses-* tags if present, otherwise infer a stable default.
+    session_raw = (
+        getattr(first, "study_id", None)
+        or getattr(first, "study_description", None)
+        or ""
+    )
+    session_label = _sanitize_bids_label(session_raw)
+    if session_label.startswith("ses") and len(session_label) > 3:
+        session = f"ses-{session_label[3:]}"
+    elif session_label:
+        session = f"ses-{session_label}"
+    else:
+        session = "ses-01"
+
+    # Locator groups related datasets under a stable project-level namespace.
+    locator_raw = getattr(first, "study_description", None) or "cogmap"
+    locator = _sanitize_bids_label(locator_raw) or "cogmap"
+
+    ids = {"locator": locator, "session": session}
+    if subject_label:
+        ids["subject"] = subject_label
+    return ids
+
+
 def _is_probable_bold(desc, s):
     """
     Restrict task assignments to true fMRI time series.
