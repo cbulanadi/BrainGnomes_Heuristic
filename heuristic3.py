@@ -5,18 +5,10 @@ CogMAP heuristic for HeuDiConv (session-safe, stricter matching)
 
 import re
 
-# Auto-populate IntendedFor for fmaps using acquisition labels.
-#
-# NOTE:
-# Some sessions can yield sidecars with AcquisitionTime="n/a" (for example when
-# dcmstack embedding fails on missing PixelSpacing in source DICOM metadata).
-# HeuDiConv's "Closest" criterion requires parsing AcquisitionTime and raises:
-#   ValueError: Unable to parse datetime string: n/a
-# Using "First" avoids datetime parsing while still assigning IntendedFor
-# within compatible acquisition groups.
+# Auto-populate IntendedFor for fmaps using closest match and acquisition labels
 POPULATE_INTENDED_FOR_OPTS = {
     "matching_parameters": ["CustomAcquisitionLabel"],
-    "criterion": "First",
+    "criterion": "Closest",
 }
 
 
@@ -42,8 +34,12 @@ def _as_lower_text(value):
     return str(value).lower()
 
 
-def _full_text(desc, s):
-    return " ".join(
+def _is_probable_dwi(desc, s):
+    """
+    Keep only true diffusion series for *_dwi outputs to avoid
+    VOLUME_COUNT_MISMATCH from assigning non-diffusion PA/AP scans.
+    """
+    full_text = " ".join(
         [
             desc,
             _as_lower_text(getattr(s, "protocol_name", "")),
@@ -51,14 +47,6 @@ def _full_text(desc, s):
             _as_lower_text(getattr(s, "image_type", "")),
         ]
     )
-
-
-def _is_probable_dwi(desc, s):
-    """
-    Keep only true diffusion series for *_dwi outputs to avoid
-    VOLUME_COUNT_MISMATCH from assigning non-diffusion PA/AP scans.
-    """
-    full_text = _full_text(desc, s)
 
     excluded_terms = (
         "distortionmap",
@@ -82,22 +70,6 @@ def _is_probable_dwi(desc, s):
     return "dmri" in full_text or "dwi" in full_text
 
 
-def _is_probable_fmap(full_text):
-    fmap_terms = ("distortionmap", "fieldmap", "topup", "fmap")
-    return any(term in full_text for term in fmap_terms)
-
-
-def infotoids(seqinfos, outdir):
-    """
-    Provide stable subject/session fields to avoid ambiguity in BIDS path building.
-    """
-    return {
-        "locator": None,
-        "session": None,
-        "subject": None,
-    }
-
-
 def infotodict(seqinfo):
     # IMPORTANT:
     # Use {session} directly (do NOT prepend ses-), because in this project
@@ -119,18 +91,16 @@ def infotodict(seqinfo):
     dwi_ap = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-AP_run-{item:02d}_dwi")
     dwi_pa = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-PA_run-{item:02d}_dwi")
 
-    # Include run-{item:02d} on all fmap outputs to prevent collisions when
-    # multiple AP/PA distortion maps share the same acquisition label.
-    fmap_ap = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-AP_run-{item:02d}_epi")
-    fmap_pa = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-PA_run-{item:02d}_epi")
-    fmap_ap_ccf = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-AP_run-{item:02d}_epi")
-    fmap_pa_ccf = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-PA_run-{item:02d}_epi")
-    fmap_ap_rise = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-AP_run-{item:02d}_epi")
-    fmap_pa_rise = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-PA_run-{item:02d}_epi")
-    fmap_ap_dpx = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-AP_run-{item:02d}_epi")
-    fmap_pa_dpx = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-PA_run-{item:02d}_epi")
-    fmap_ap_emo = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-AP_run-{item:02d}_epi")
-    fmap_pa_emo = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-PA_run-{item:02d}_epi")
+    fmap_ap = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-AP_epi")
+    fmap_pa = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-PA_epi")
+    fmap_ap_ccf = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-AP_epi")
+    fmap_pa_ccf = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-PA_epi")
+    fmap_ap_rise = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-AP_epi")
+    fmap_pa_rise = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-PA_epi")
+    fmap_ap_dpx = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-AP_epi")
+    fmap_pa_dpx = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-PA_epi")
+    fmap_ap_emo = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-AP_epi")
+    fmap_pa_emo = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-PA_epi")
 
     info = {
         t1w: [],
@@ -149,39 +119,37 @@ def infotodict(seqinfo):
 
     for s in seqinfo:
         desc = (s.series_description or "").lower()
-        full_text = _full_text(desc, s)
-        is_fmap = _is_probable_fmap(full_text)
 
         # Ignore localizers/scouts
-        if "localizer" in full_text or "scout" in full_text:
+        if "localizer" in desc or "scout" in desc:
             continue
 
         # Fieldmaps first (to avoid accidental task matches)
-        if is_fmap and "ap" in full_text and "ccf" in full_text:
+        if "distortionmap" in desc and "ap" in desc and "ccf" in desc:
             info[fmap_ap_ccf].append(s.series_id)
-        elif is_fmap and "pa" in full_text and "ccf" in full_text:
+        elif "distortionmap" in desc and "pa" in desc and "ccf" in desc:
             info[fmap_pa_ccf].append(s.series_id)
-        elif is_fmap and "ap" in full_text and "rise" in full_text:
+        elif "distortionmap" in desc and "ap" in desc and "rise" in desc:
             info[fmap_ap_rise].append(s.series_id)
-        elif is_fmap and "pa" in full_text and "rise" in full_text:
+        elif "distortionmap" in desc and "pa" in desc and "rise" in desc:
             info[fmap_pa_rise].append(s.series_id)
-        elif is_fmap and "ap" in full_text and "dpx" in full_text:
+        elif "distortionmap" in desc and "ap" in desc and "dpx" in desc:
             info[fmap_ap_dpx].append(s.series_id)
-        elif is_fmap and "pa" in full_text and "dpx" in full_text:
+        elif "distortionmap" in desc and "pa" in desc and "dpx" in desc:
             info[fmap_pa_dpx].append(s.series_id)
-        elif is_fmap and "ap" in full_text and "emo" in full_text:
+        elif "distortionmap" in desc and "ap" in desc and "emo" in desc:
             info[fmap_ap_emo].append(s.series_id)
-        elif is_fmap and "pa" in full_text and "emo" in full_text:
+        elif "distortionmap" in desc and "pa" in desc and "emo" in desc:
             info[fmap_pa_emo].append(s.series_id)
-        elif is_fmap and "ap" in full_text:
+        elif "distortionmap" in desc and "ap" in desc:
             info[fmap_ap].append(s.series_id)
-        elif is_fmap and "pa" in full_text:
+        elif "distortionmap" in desc and "pa" in desc:
             info[fmap_pa].append(s.series_id)
 
         # Diffusion
-        elif ("dmri_ap" in full_text or "dwi_ap" in full_text) and _is_probable_dwi(desc, s):
+        elif ("dmri_ap" in desc or "dwi_ap" in desc) and _is_probable_dwi(desc, s):
             info[dwi_ap].append(s.series_id)
-        elif ("dmri_pa" in full_text or "dwi_pa" in full_text) and _is_probable_dwi(desc, s):
+        elif ("dmri_pa" in desc or "dwi_pa" in desc) and _is_probable_dwi(desc, s):
             info[dwi_pa].append(s.series_id)
 
         # Anatomical
