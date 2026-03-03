@@ -327,6 +327,14 @@ def tuneup_bids_json_files(json_files):
         if not path.exists():
             continue
 
+        # Remove accidental non-BIDS duplicate functional files (e.g. *_bold1)
+        # that can appear when conversion encounters pre-existing targets.
+        if re.search(r"_bold\d+\.json$", path.name):
+            for extra in (path, path.with_suffix(""), path.with_suffix("").with_suffix(".nii.gz")):
+                if extra.exists():
+                    extra.unlink()
+            continue
+
         with path.open("r", encoding="utf-8") as fobj:
             sidecar = json.load(fobj)
 
