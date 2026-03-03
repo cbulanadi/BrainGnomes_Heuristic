@@ -101,6 +101,44 @@ def _append_once(info, key, series_id):
         info[key].append(series_id)
 
 
+def _is_probable_bold(desc, s):
+    """
+    Restrict task assignments to true fMRI time series.
+
+    This avoids assigning SBRef/localizer/derived/map series to *_bold names,
+    which can create duplicate outputs like *_bold1.nii.gz that are not
+    BIDS-compliant.
+    """
+    full_text = " ".join(
+        [
+            desc,
+            _as_lower_text(getattr(s, "protocol_name", "")),
+            _as_lower_text(getattr(s, "sequence_name", "")),
+            _as_lower_text(getattr(s, "image_type", "")),
+        ]
+    )
+
+    excluded_terms = (
+        "sbref",
+        "distortionmap",
+        "fieldmap",
+        "fmap",
+        "topup",
+        "dwi",
+        "dmri",
+        "localizer",
+        "scout",
+    )
+    if any(term in full_text for term in excluded_terms):
+        return False
+
+    dim4 = int(getattr(s, "dim4", 0) or 0)
+    if dim4 < 20:
+        return False
+
+    return _is_plausible_image_series(s)
+
+
 def infotodict(seqinfo):
     # IMPORTANT:
     # Use {session} directly (do NOT prepend ses-), because in this project
@@ -192,25 +230,25 @@ def infotodict(seqinfo):
             info[t1w].append(s.series_id)
 
         # Functional tasks
-        elif _task_run_match(desc, "ccf", 1):
+        elif _task_run_match(desc, "ccf", 1) and _is_probable_bold(desc, s):
             _append_once(info, task_ccf_1, s.series_id)
-        elif _task_run_match(desc, "ccf", 2):
+        elif _task_run_match(desc, "ccf", 2) and _is_probable_bold(desc, s):
             _append_once(info, task_ccf_2, s.series_id)
-        elif _task_run_match(desc, "rise", 1):
+        elif _task_run_match(desc, "rise", 1) and _is_probable_bold(desc, s):
             _append_once(info, task_rise_1, s.series_id)
-        elif _task_run_match(desc, "rise", 2):
+        elif _task_run_match(desc, "rise", 2) and _is_probable_bold(desc, s):
             _append_once(info, task_rise_2, s.series_id)
-        elif _task_run_match(desc, "dpx", 1):
+        elif _task_run_match(desc, "dpx", 1) and _is_probable_bold(desc, s):
             _append_once(info, task_dpx_1, s.series_id)
-        elif _task_run_match(desc, "dpx", 2):
+        elif _task_run_match(desc, "dpx", 2) and _is_probable_bold(desc, s):
             _append_once(info, task_dpx_2, s.series_id)
-        elif _task_run_match(desc, "emo", 1):
+        elif _task_run_match(desc, "emo", 1) and _is_probable_bold(desc, s):
             _append_once(info, task_emo_1, s.series_id)
-        elif _task_run_match(desc, "emo", 2):
+        elif _task_run_match(desc, "emo", 2) and _is_probable_bold(desc, s):
             _append_once(info, task_emo_2, s.series_id)
-        elif _task_run_match(desc, "rest", 1):
+        elif _task_run_match(desc, "rest", 1) and _is_probable_bold(desc, s):
             _append_once(info, task_rest_1, s.series_id)
-        elif _task_run_match(desc, "rest", 2):
+        elif _task_run_match(desc, "rest", 2) and _is_probable_bold(desc, s):
             _append_once(info, task_rest_2, s.series_id)
 
     return info
