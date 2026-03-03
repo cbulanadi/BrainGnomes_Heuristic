@@ -4,6 +4,8 @@ CogMAP heuristic for HeuDiConv (session-safe, stricter matching)
 """
 
 import re
+import json
+from pathlib import Path
 
 # Auto-populate IntendedFor for fmaps using closest match and acquisition labels
 POPULATE_INTENDED_FOR_OPTS = {
@@ -212,3 +214,28 @@ def infotodict(seqinfo):
             _append_once(info, task_rest_2, s.series_id)
 
     return info
+
+
+def tuneup_bids_json_files(json_files):
+    """
+    Post-process sidecars after conversion.
+
+    Some source DICOMs include both RepetitionTime and AcquisitionDuration,
+    which triggers the BIDS validator error
+    REPETITION_TIME_AND_ACQUISITION_DURATION_MUTUALLY_EXCLUSIVE.
+    Keep RepetitionTime and remove AcquisitionDuration whenever both are
+    present in the same sidecar.
+    """
+    for json_file in json_files:
+        path = Path(json_file)
+        if not path.exists():
+            continue
+
+        with path.open("r", encoding="utf-8") as fobj:
+            sidecar = json.load(fobj)
+
+        if "RepetitionTime" in sidecar and "AcquisitionDuration" in sidecar:
+            sidecar.pop("AcquisitionDuration", None)
+            with path.open("w", encoding="utf-8") as fobj:
+                json.dump(sidecar, fobj, indent=2, sort_keys=True)
+                fobj.write("\n")
