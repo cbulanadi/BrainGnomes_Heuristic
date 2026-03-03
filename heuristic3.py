@@ -91,16 +91,18 @@ def infotodict(seqinfo):
     dwi_ap = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-AP_run-{item:02d}_dwi")
     dwi_pa = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-PA_run-{item:02d}_dwi")
 
-    fmap_ap = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-AP_epi")
-    fmap_pa = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-PA_epi")
-    fmap_ap_ccf = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-AP_epi")
-    fmap_pa_ccf = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-PA_epi")
-    fmap_ap_rise = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-AP_epi")
-    fmap_pa_rise = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-PA_epi")
-    fmap_ap_dpx = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-AP_epi")
-    fmap_pa_dpx = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-PA_epi")
-    fmap_ap_emo = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-AP_epi")
-    fmap_pa_emo = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-PA_epi")
+    # Include run-{item:02d} on all fmap outputs to prevent collisions when
+    # multiple AP/PA distortion maps share the same acquisition label.
+    fmap_ap = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-AP_run-{item:02d}_epi")
+    fmap_pa = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_dir-PA_run-{item:02d}_epi")
+    fmap_ap_ccf = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-AP_run-{item:02d}_epi")
+    fmap_pa_ccf = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-PA_run-{item:02d}_epi")
+    fmap_ap_rise = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-AP_run-{item:02d}_epi")
+    fmap_pa_rise = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-PA_run-{item:02d}_epi")
+    fmap_ap_dpx = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-AP_run-{item:02d}_epi")
+    fmap_pa_dpx = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-PA_run-{item:02d}_epi")
+    fmap_ap_emo = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-AP_run-{item:02d}_epi")
+    fmap_pa_emo = create_key("sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-PA_run-{item:02d}_epi")
 
     info = {
         t1w: [],
