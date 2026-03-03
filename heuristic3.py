@@ -34,12 +34,8 @@ def _as_lower_text(value):
     return str(value).lower()
 
 
-def _is_probable_dwi(desc, s):
-    """
-    Keep only true diffusion series for *_dwi outputs to avoid
-    VOLUME_COUNT_MISMATCH from assigning non-diffusion PA/AP scans.
-    """
-    full_text = " ".join(
+def _full_text(desc, s):
+    return " ".join(
         [
             desc,
             _as_lower_text(getattr(s, "protocol_name", "")),
@@ -47,6 +43,14 @@ def _is_probable_dwi(desc, s):
             _as_lower_text(getattr(s, "image_type", "")),
         ]
     )
+
+
+def _is_probable_dwi(desc, s):
+    """
+    Keep only true diffusion series for *_dwi outputs to avoid
+    VOLUME_COUNT_MISMATCH from assigning non-diffusion PA/AP scans.
+    """
+    full_text = _full_text(desc, s)
 
     excluded_terms = (
         "distortionmap",
@@ -68,6 +72,22 @@ def _is_probable_dwi(desc, s):
         return False
 
     return "dmri" in full_text or "dwi" in full_text
+
+
+def _is_probable_fmap(full_text):
+    fmap_terms = ("distortionmap", "fieldmap", "topup", "fmap")
+    return any(term in full_text for term in fmap_terms)
+
+
+def infotoids(seqinfos, outdir):
+    """
+    Provide stable subject/session fields to avoid ambiguity in BIDS path building.
+    """
+    return {
+        "locator": None,
+        "session": None,
+        "subject": None,
+    }
 
 
 def infotodict(seqinfo):
@@ -121,37 +141,39 @@ def infotodict(seqinfo):
 
     for s in seqinfo:
         desc = (s.series_description or "").lower()
+        full_text = _full_text(desc, s)
+        is_fmap = _is_probable_fmap(full_text)
 
         # Ignore localizers/scouts
-        if "localizer" in desc or "scout" in desc:
+        if "localizer" in full_text or "scout" in full_text:
             continue
 
         # Fieldmaps first (to avoid accidental task matches)
-        if "distortionmap" in desc and "ap" in desc and "ccf" in desc:
+        if is_fmap and "ap" in full_text and "ccf" in full_text:
             info[fmap_ap_ccf].append(s.series_id)
-        elif "distortionmap" in desc and "pa" in desc and "ccf" in desc:
+        elif is_fmap and "pa" in full_text and "ccf" in full_text:
             info[fmap_pa_ccf].append(s.series_id)
-        elif "distortionmap" in desc and "ap" in desc and "rise" in desc:
+        elif is_fmap and "ap" in full_text and "rise" in full_text:
             info[fmap_ap_rise].append(s.series_id)
-        elif "distortionmap" in desc and "pa" in desc and "rise" in desc:
+        elif is_fmap and "pa" in full_text and "rise" in full_text:
             info[fmap_pa_rise].append(s.series_id)
-        elif "distortionmap" in desc and "ap" in desc and "dpx" in desc:
+        elif is_fmap and "ap" in full_text and "dpx" in full_text:
             info[fmap_ap_dpx].append(s.series_id)
-        elif "distortionmap" in desc and "pa" in desc and "dpx" in desc:
+        elif is_fmap and "pa" in full_text and "dpx" in full_text:
             info[fmap_pa_dpx].append(s.series_id)
-        elif "distortionmap" in desc and "ap" in desc and "emo" in desc:
+        elif is_fmap and "ap" in full_text and "emo" in full_text:
             info[fmap_ap_emo].append(s.series_id)
-        elif "distortionmap" in desc and "pa" in desc and "emo" in desc:
+        elif is_fmap and "pa" in full_text and "emo" in full_text:
             info[fmap_pa_emo].append(s.series_id)
-        elif "distortionmap" in desc and "ap" in desc:
+        elif is_fmap and "ap" in full_text:
             info[fmap_ap].append(s.series_id)
-        elif "distortionmap" in desc and "pa" in desc:
+        elif is_fmap and "pa" in full_text:
             info[fmap_pa].append(s.series_id)
 
         # Diffusion
-        elif ("dmri_ap" in desc or "dwi_ap" in desc) and _is_probable_dwi(desc, s):
+        elif ("dmri_ap" in full_text or "dwi_ap" in full_text) and _is_probable_dwi(desc, s):
             info[dwi_ap].append(s.series_id)
-        elif ("dmri_pa" in desc or "dwi_pa" in desc) and _is_probable_dwi(desc, s):
+        elif ("dmri_pa" in full_text or "dwi_pa" in full_text) and _is_probable_dwi(desc, s):
             info[dwi_pa].append(s.series_id)
 
         # Anatomical
