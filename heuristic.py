@@ -1,17 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-CogMAP heuristic for HeuDiConv (session-safe, stricter matching)
-"""
-
-import re
-import json
-from pathlib import Path
-
-# Auto-populate IntendedFor for fmaps using closest match and acquisition labels
-POPULATE_INTENDED_FOR_OPTS = {
-    "matching_parameters": ["CustomAcquisitionLabel"],
-    "criterion": "Closest",
-}
+"""Heuristic for BrainGnomes bids_conversion."""
 
 
 def create_key(template, outtype=("nii.gz",), annotation_classes=None):
@@ -20,259 +7,181 @@ def create_key(template, outtype=("nii.gz",), annotation_classes=None):
     return template, outtype, annotation_classes
 
 
-def _task_run_match(desc, task, run_num):
-    # Matches underscore/hyphen/space separated labels like:
-    # ccf_run1, ccf-run-01, ccf part1, ccf_part_01, ahcp_fmri_dpx_run1, rise_part2
-    task_present = re.search(rf"(^|[^a-z0-9]){task}($|[^a-z0-9])", desc)
-    run_present = re.search(rf"(^|[^a-z0-9])(run|part)[^a-z0-9]*0?{run_num}($|[^0-9])", desc)
-    return bool(task_present and run_present)
+def infotodict(seqinfo):
+    t1w = create_key("sub-{subject}/{session}/anat/sub-{subject}_{session}_T1w")
 
-
-def _as_lower_text(value):
-    if not value:
-        return ""
-    if isinstance(value, (tuple, list)):
-        return " ".join(str(v) for v in value).lower()
-    return str(value).lower()
-
-
-def _is_derived_or_secondary(s):
-    """
-    Avoid assigning non-primary or derived images (which can trigger conversion
-    failures like missing PixelSpacing and duplicate output collisions).
-    """
-    image_type = _as_lower_text(getattr(s, "image_type", ""))
-    bad_tokens = ("derived", "secondary", "localizer", "scout", "moco")
-    return any(tok in image_type for tok in bad_tokens)
-
-
-def _is_plausible_image_series(s):
-    """Basic sanity filter for real image volumes."""
-    if _is_derived_or_secondary(s):
-        return False
-
-    dim1 = int(getattr(s, "dim1", 0) or 0)
-    dim2 = int(getattr(s, "dim2", 0) or 0)
-    return dim1 >= 32 and dim2 >= 32
-
-
-def _is_probable_dwi(desc, s):
-    """
-    Keep only true diffusion series for *_dwi outputs to avoid
-    VOLUME_COUNT_MISMATCH from assigning non-diffusion PA/AP scans.
-    """
-    full_text = " ".join(
-        [
-            desc,
-            _as_lower_text(getattr(s, "protocol_name", "")),
-            _as_lower_text(getattr(s, "sequence_name", "")),
-            _as_lower_text(getattr(s, "image_type", "")),
-        ]
+    task_ccf_run1 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-ccf_run-01_bold"
+    )
+    task_ccf_run2 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-ccf_run-02_bold"
+    )
+    fmap_ccf_pa = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-PA_epi"
+    )
+    fmap_ccf_ap = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-ccf_dir-AP_epi"
     )
 
-    excluded_terms = (
-        "distortionmap",
-        "fieldmap",
-        "topup",
-        "fmap",
-        "sbref",
-        "trace",
-        "adc",
-        "fa",
-        "md",
+    task_dpx_run1 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-dpx_run-01_bold"
     )
-    if any(term in full_text for term in excluded_terms):
-        return False
-
-    dim4 = int(getattr(s, "dim4", 0) or 0)
-    # True dMRI should have many volumes; avoid sending short AP/PA map scans to dwi.
-    if dim4 < 10:
-        return False
-
-    return ("dmri" in full_text or "dwi" in full_text) and _is_plausible_image_series(s)
-
-
-def _append_once(info, key, series_id):
-    """
-    Prevent duplicate writes to fixed output names (for example T1w, run-01,
-    run-02), which can otherwise fail with destination-already-exists.
-    """
-    if not info[key]:
-        info[key].append(series_id)
-
-
-def _sanitize_bids_label(value):
-    """Convert arbitrary text into a safe BIDS entity label fragment."""
-    text = _as_lower_text(value)
-    cleaned = re.sub(r"[^a-z0-9]+", "", text)
-    return cleaned
-
-
-def infotoids(seqinfos, outdir=None):
-    """
-    Populate subject/session/locator IDs from sequence metadata when available.
-
-    This suppresses heudiconv's fallback warning about missing ``infotoids`` and
-    ensures conversions remain stable across all subject IDs even when command
-    line ``-s/-ss`` values are not explicitly provided.
-    """
-    if not seqinfos:
-        return {"locator": "cogmap", "session": "ses-01"}
-
-    first = seqinfos[0]
-
-    # Subject: prefer explicit DICOM fields, then fallback to first numeric token.
-    subject_raw = (
-        getattr(first, "patient_id", None)
-        or getattr(first, "patient_name", None)
-        or getattr(first, "study_description", None)
-        or ""
+    task_dpx_run2 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-dpx_run-02_bold"
     )
-    subject_label = _sanitize_bids_label(subject_raw)
-    if not subject_label:
-        description = _as_lower_text(getattr(first, "series_description", ""))
-        match = re.search(r"\b(\d{3,})\b", description)
-        if match:
-            subject_label = match.group(1)
-
-    # Session: keep existing ses-* tags if present, otherwise infer a stable default.
-    session_raw = (
-        getattr(first, "study_id", None)
-        or getattr(first, "study_description", None)
-        or ""
+    fmap_dpx_pa = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-PA_epi"
     )
-    session_label = _sanitize_bids_label(session_raw)
-    if session_label.startswith("ses") and len(session_label) > 3:
-        session = f"ses-{session_label[3:]}"
-    elif session_label:
-        session = f"ses-{session_label}"
-    else:
-        session = "ses-01"
-
-    # Locator groups related datasets under a stable project-level namespace.
-    locator_raw = getattr(first, "study_description", None) or "cogmap"
-    locator = _sanitize_bids_label(locator_raw) or "cogmap"
-
-    ids = {"locator": locator, "session": session}
-    if subject_label:
-        ids["subject"] = subject_label
-    return ids
-
-
-def _is_probable_bold(desc, s):
-    """
-    Restrict task assignments to true fMRI time series.
-
-    This avoids assigning SBRef/localizer/derived/map series to *_bold names,
-    which can create duplicate outputs like *_bold1.nii.gz that are not
-    BIDS-compliant.
-    """
-    full_text = " ".join(
-        [
-            desc,
-            _as_lower_text(getattr(s, "protocol_name", "")),
-            _as_lower_text(getattr(s, "sequence_name", "")),
-            _as_lower_text(getattr(s, "image_type", "")),
-        ]
+    fmap_dpx_ap = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dpx_dir-AP_epi"
     )
 
-    excluded_terms = (
-        "sbref",
-        "distortionmap",
-        "fieldmap",
-        "fmap",
-        "topup",
-        "dwi",
-        "dmri",
-        "localizer",
-        "scout",
+    task_rise_run1 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-rise_run-01_bold"
     )
-    if any(term in full_text for term in excluded_terms):
-        return False
+    task_rise_run2 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-rise_run-02_bold"
+    )
+    fmap_rise_pa = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-PA_epi"
+    )
+    fmap_rise_ap = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rise_dir-AP_epi"
+    )
 
-    dim4 = int(getattr(s, "dim4", 0) or 0)
-    if dim4 < 20:
-        return False
+    task_emo_run1 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-emo_run-01_bold"
+    )
+    task_emo_run2 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-emo_run-02_bold"
+    )
+    fmap_emo_pa = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-PA_epi"
+    )
+    fmap_emo_ap = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-emo_dir-AP_epi"
+    )
 
-    return _is_plausible_image_series(s)
+    task_rest_run1 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-rest_run-01_bold"
+    )
+    task_rest_run2 = create_key(
+        "sub-{subject}/{session}/func/sub-{subject}_{session}_task-rest_run-02_bold"
+    )
+    fmap_rest_pa = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rest_dir-PA_epi"
+    )
+    fmap_rest_ap = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-rest_dir-AP_epi"
+    )
 
+    dwi_ap = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-AP_dwi")
+    dwi_pa = create_key("sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-PA_dwi")
+    dwi_sbref_ap = create_key(
+        "sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-AP_sbref"
+    )
+    dwi_sbref_pa = create_key(
+        "sub-{subject}/{session}/dwi/sub-{subject}_{session}_dir-PA_sbref"
+    )
+    fmap_dwi_ap = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dwi_dir-AP_epi"
+    )
+    fmap_dwi_pa = create_key(
+        "sub-{subject}/{session}/fmap/sub-{subject}_{session}_acq-dwi_dir-PA_epi"
+    )
 
-def tuneup_bids_json_files(json_files):
-    """
-    Post-process sidecars after conversion.
+    info = {
+        t1w: [],
+        task_ccf_run1: [],
+        task_ccf_run2: [],
+        fmap_ccf_pa: [],
+        fmap_ccf_ap: [],
+        task_dpx_run1: [],
+        task_dpx_run2: [],
+        fmap_dpx_pa: [],
+        fmap_dpx_ap: [],
+        task_rise_run1: [],
+        task_rise_run2: [],
+        fmap_rise_pa: [],
+        fmap_rise_ap: [],
+        task_emo_run1: [],
+        task_emo_run2: [],
+        fmap_emo_pa: [],
+        fmap_emo_ap: [],
+        task_rest_run1: [],
+        task_rest_run2: [],
+        fmap_rest_pa: [],
+        fmap_rest_ap: [],
+        dwi_ap: [],
+        dwi_pa: [],
+        dwi_sbref_ap: [],
+        dwi_sbref_pa: [],
+        fmap_dwi_ap: [],
+        fmap_dwi_pa: [],
+    }
 
-    Some source DICOMs include both RepetitionTime and AcquisitionDuration,
-    which triggers the BIDS validator error
-    REPETITION_TIME_AND_ACQUISITION_DURATION_MUTUALLY_EXCLUSIVE.
-    Keep RepetitionTime and remove AcquisitionDuration whenever both are
-    present in the same sidecar.
+    for s in seqinfo:
+        desc = (s.series_description or "").lower()
 
-    HeuDiConv may pass only newly-created JSONs to this hook. When rerunning
-    partial conversions (for example, a single session), older sidecars under
-    the same session might still carry AcquisitionDuration. To keep reruns
-    stable, also sweep sibling JSON sidecars in the same session tree.
-    """
+        if "adni3_t1_mprag_sag_p2_iso" in desc:
+            info[t1w].append(s.series_id)
 
-    def _remove_non_bids_duplicate(path):
-        """Delete accidental fallback files like *_bold1(.json/.nii.gz)."""
-        if not re.search(r"_bold\d+\.json$", path.name):
-            return False
+        elif "fmri_ccf_run1" in desc:
+            info[task_ccf_run1].append(s.series_id)
+        elif "fmri_ccf_run2" in desc:
+            info[task_ccf_run2].append(s.series_id)
+        elif "fmri_distortionmap_pa_ccf" in desc:
+            info[fmap_ccf_pa].append(s.series_id)
+        elif "fmri_distortionmap_ap_ccf" in desc:
+            info[fmap_ccf_ap].append(s.series_id)
 
-        stem = path.name[:-5]  # drop .json
-        nii = path.with_name(f"{stem}.nii.gz")
-        for extra in (path, nii):
-            if extra.exists():
-                extra.unlink()
-        return True
+        elif "fmri_dpx_run1" in desc:
+            info[task_dpx_run1].append(s.series_id)
+        elif "fmri_dpx_run2" in desc:
+            info[task_dpx_run2].append(s.series_id)
+        elif "fmri_distortionmap_pa_dpx" in desc:
+            info[fmap_dpx_pa].append(s.series_id)
+        elif "fmri_distortionmap_ap_dpx" in desc:
+            info[fmap_dpx_ap].append(s.series_id)
 
-    def _cleanup_sidecar(path):
-        if not path.exists():
-            return
-        if _remove_non_bids_duplicate(path):
-            return
+        elif "fmri_rise_part1" in desc:
+            info[task_rise_run1].append(s.series_id)
+        elif "fmri_rise_part2" in desc:
+            info[task_rise_run2].append(s.series_id)
+        elif "fmri_distortionmap_pa_rise" in desc:
+            info[fmap_rise_pa].append(s.series_id)
+        elif "fmri_distortionmap_ap_rise" in desc:
+            info[fmap_rise_ap].append(s.series_id)
 
-        # Remove accidental non-BIDS duplicate functional files (e.g. *_bold1)
-        # that can appear when conversion encounters pre-existing targets.
-        if re.search(r"_bold\d+\.json$", path.name):
-            for extra in (path, path.with_suffix(""), path.with_suffix("").with_suffix(".nii.gz")):
-                if extra.exists():
-                    extra.unlink()
-            continue
+        elif "fmri_emo_run1" in desc:
+            info[task_emo_run1].append(s.series_id)
+        elif "fmri_emo_run2" in desc:
+            info[task_emo_run2].append(s.series_id)
+        elif "fmri_distortionmap_pa_emo" in desc:
+            info[fmap_emo_pa].append(s.series_id)
+        elif "fmri_distortionmap_ap_emo" in desc:
+            info[fmap_emo_ap].append(s.series_id)
 
-        with path.open("r", encoding="utf-8") as fobj:
-            sidecar = json.load(fobj)
+        elif "fmri_rest_run1" in desc:
+            info[task_rest_run1].append(s.series_id)
+        elif "fmri_rest_run2" in desc:
+            info[task_rest_run2].append(s.series_id)
+        elif "fmri_distortionmap_pa_rest" in desc:
+            info[fmap_rest_pa].append(s.series_id)
+        elif "fmri_distortionmap_ap_rest" in desc:
+            info[fmap_rest_ap].append(s.series_id)
 
-        if "RepetitionTime" in sidecar and "AcquisitionDuration" in sidecar:
-            sidecar.pop("AcquisitionDuration", None)
-            with path.open("w", encoding="utf-8") as fobj:
-                json.dump(sidecar, fobj, indent=2, sort_keys=True)
-                fobj.write("\n")
+        elif "dmri_distortionmap_pa" in desc:
+            info[fmap_dwi_pa].append(s.series_id)
+        elif "dmri_distortionmap_ap" in desc:
+            info[fmap_dwi_ap].append(s.series_id)
+        elif "dmri_pa_sbref" in desc:
+            info[dwi_sbref_pa].append(s.series_id)
+        elif "dmri_ap_sbref" in desc:
+            info[dwi_sbref_ap].append(s.series_id)
+        elif desc == "dmri_pa" or desc.endswith("_dmri_pa"):
+            info[dwi_pa].append(s.series_id)
+        elif desc == "dmri_ap" or desc.endswith("_dmri_ap"):
+            info[dwi_ap].append(s.series_id)
 
-    # De-duplicate while preserving order.
-    direct_paths = []
-    seen = set()
-    for json_file in json_files:
-        path = Path(json_file)
-        if path in seen:
-            continue
-        seen.add(path)
-        direct_paths.append(path)
-
-    for path in direct_paths:
-        _cleanup_sidecar(path)
-
-    # Also sanitize all JSON sidecars in the same sub-*/ses-* tree so reruns
-    # don't leave older files with mutually-exclusive metadata.
-    session_roots = set()
-    for path in direct_paths:
-        parts = path.parts
-        for idx, part in enumerate(parts):
-            if part.startswith("ses-") and idx > 0 and parts[idx - 1].startswith("sub-"):
-                session_roots.add(Path(*parts[: idx + 1]))
-                break
-
-    for root in sorted(session_roots):
-        if not root.exists() or not root.is_dir():
-            continue
-        for sidecar in root.rglob("*.json"):
-            _cleanup_sidecar(sidecar)
+    return info
