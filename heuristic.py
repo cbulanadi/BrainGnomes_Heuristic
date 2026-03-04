@@ -18,7 +18,7 @@ def _series_entry(series_id):
 
     return {
         "item": series_id,
-        "sidecar_changes": {field: None for field in METADATA_FIELDS_TO_DROP},
+        "sidecar_changes": {field: "" for field in METADATA_FIELDS_TO_DROP},
     }
 
 
