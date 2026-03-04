@@ -1,10 +1,25 @@
 """Heuristic for BrainGnomes bids_conversion."""
 
 
+# Some scanners/protocol exports include both `RepetitionTime` and
+# `AcquisitionDuration` in sidecars. BIDS requires those to be mutually
+# exclusive, so we explicitly remove `AcquisitionDuration` during metadata
+# post-processing.
+METADATA_FIELDS_TO_DROP = ("AcquisitionDuration",)
+
+
 def create_key(template, outtype=("nii.gz",), annotation_classes=None):
     if not template:
         raise ValueError("Template must be a valid format string")
     return template, outtype, annotation_classes
+
+def _series_entry(series_id):
+    """Attach sidecar changes to each mapped series."""
+
+    return {
+        "item": series_id,
+        "sidecar_changes": {field: "" for field in METADATA_FIELDS_TO_DROP},
+    }
 
 
 def infotodict(seqinfo):
@@ -164,84 +179,97 @@ def infotodict(seqinfo):
         desc = (s.series_description or "").lower()
 
         if "adni3_t1_mprag_sag_p2_iso" in desc:
-            info[t1w].append(s.series_id)
+            info[t1w].append(_series_entry(s.series_id))
 
         elif "fmri_ccf_run1" in desc and "sbref" in desc:
-            info[task_ccf_run1_sbref].append(s.series_id)
+            info[task_ccf_run1_sbref].append(_series_entry(s.series_id))
         elif "fmri_ccf_run1" in desc:
-            info[task_ccf_run1].append(s.series_id)
+            info[task_ccf_run1].append(_series_entry(s.series_id))
         elif "fmri_ccf_run2" in desc and "sbref" in desc:
-            info[task_ccf_run2_sbref].append(s.series_id)
+            info[task_ccf_run2_sbref].append(_series_entry(s.series_id))
         elif "fmri_ccf_run2" in desc:
-            info[task_ccf_run2].append(s.series_id)
+            info[task_ccf_run2].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_pa_ccf" in desc:
-            info[fmap_ccf_pa].append(s.series_id)
+            info[fmap_ccf_pa].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_ap_ccf" in desc:
-            info[fmap_ccf_ap].append(s.series_id)
+            info[fmap_ccf_ap].append(_series_entry(s.series_id))
 
         elif "fmri_dpx_run1" in desc and "sbref" in desc:
-            info[task_dpx_run1_sbref].append(s.series_id)
+            info[task_dpx_run1_sbref].append(_series_entry(s.series_id))
         elif "fmri_dpx_run1" in desc:
-            info[task_dpx_run1].append(s.series_id)
+            info[task_dpx_run1].append(_series_entry(s.series_id))
         elif "fmri_dpx_run2" in desc and "sbref" in desc:
-            info[task_dpx_run2_sbref].append(s.series_id)
+            info[task_dpx_run2_sbref].append(_series_entry(s.series_id))
         elif "fmri_dpx_run2" in desc:
-            info[task_dpx_run2].append(s.series_id)
+            info[task_dpx_run2].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_pa_dpx" in desc:
-            info[fmap_dpx_pa].append(s.series_id)
+            info[fmap_dpx_pa].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_ap_dpx" in desc:
-            info[fmap_dpx_ap].append(s.series_id)
+            info[fmap_dpx_ap].append(_series_entry(s.series_id))
 
         elif "fmri_rise_part1" in desc and "sbref" in desc:
-            info[task_rise_run1_sbref].append(s.series_id)
+            info[task_rise_run1_sbref].append(_series_entry(s.series_id))
         elif "fmri_rise_part1" in desc:
-            info[task_rise_run1].append(s.series_id)
+            info[task_rise_run1].append(_series_entry(s.series_id))
         elif "fmri_rise_part2" in desc and "sbref" in desc:
-            info[task_rise_run2_sbref].append(s.series_id)
+            info[task_rise_run2_sbref].append(_series_entry(s.series_id))
         elif "fmri_rise_part2" in desc:
-            info[task_rise_run2].append(s.series_id)
+            info[task_rise_run2].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_pa_rise" in desc:
-            info[fmap_rise_pa].append(s.series_id)
+            info[fmap_rise_pa].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_ap_rise" in desc:
-            info[fmap_rise_ap].append(s.series_id)
+            info[fmap_rise_ap].append(_series_entry(s.series_id))
 
         elif "fmri_emo_run1" in desc and "sbref" in desc:
-            info[task_emo_run1_sbref].append(s.series_id)
+            info[task_emo_run1_sbref].append(_series_entry(s.series_id))
         elif "fmri_emo_run1" in desc:
-            info[task_emo_run1].append(s.series_id)
+            info[task_emo_run1].append(_series_entry(s.series_id))
         elif "fmri_emo_run2" in desc and "sbref" in desc:
-            info[task_emo_run2_sbref].append(s.series_id)
+            info[task_emo_run2_sbref].append(_series_entry(s.series_id))
         elif "fmri_emo_run2" in desc:
-            info[task_emo_run2].append(s.series_id)
+            info[task_emo_run2].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_pa_emo" in desc:
-            info[fmap_emo_pa].append(s.series_id)
+            info[fmap_emo_pa].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_ap_emo" in desc:
-            info[fmap_emo_ap].append(s.series_id)
+            info[fmap_emo_ap].append(_series_entry(s.series_id))
 
         elif "fmri_rest_run1" in desc and "sbref" in desc:
-            info[task_rest_run1_sbref].append(s.series_id)
+            info[task_rest_run1_sbref].append(_series_entry(s.series_id))
         elif "fmri_rest_run1" in desc:
-            info[task_rest_run1].append(s.series_id)
+            info[task_rest_run1].append(_series_entry(s.series_id))
         elif "fmri_rest_run2" in desc and "sbref" in desc:
-            info[task_rest_run2_sbref].append(s.series_id)
+            info[task_rest_run2_sbref].append(_series_entry(s.series_id))
         elif "fmri_rest_run2" in desc:
-            info[task_rest_run2].append(s.series_id)
+            info[task_rest_run2].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_pa_rest" in desc:
-            info[fmap_rest_pa].append(s.series_id)
+            info[fmap_rest_pa].append(_series_entry(s.series_id))
         elif "fmri_distortionmap_ap_rest" in desc:
-            info[fmap_rest_ap].append(s.series_id)
+            info[fmap_rest_ap].append(_series_entry(s.series_id))
 
         elif "dmri_distortionmap_pa" in desc:
-            info[fmap_dwi_pa].append(s.series_id)
+            info[fmap_dwi_pa].append(_series_entry(s.series_id))
         elif "dmri_distortionmap_ap" in desc:
-            info[fmap_dwi_ap].append(s.series_id)
+            info[fmap_dwi_ap].append(_series_entry(s.series_id))
         elif "dmri_pa_sbref" in desc:
-            info[dwi_sbref_pa].append(s.series_id)
+            info[dwi_sbref_pa].append(_series_entry(s.series_id))
         elif "dmri_ap_sbref" in desc:
-            info[dwi_sbref_ap].append(s.series_id)
+            info[dwi_sbref_ap].append(_series_entry(s.series_id))
         elif desc == "dmri_pa" or desc.endswith("_dmri_pa"):
-            info[dwi_pa].append(s.series_id)
+            info[dwi_pa].append(_series_entry(s.series_id))
         elif desc == "dmri_ap" or desc.endswith("_dmri_ap"):
-            info[dwi_ap].append(s.series_id)
+            info[dwi_ap].append(_series_entry(s.series_id))
 
     return info
+
+
+def filter_json(metadata):
+    """Drop metadata fields that trigger BIDS validator conflicts.
+
+    This hook is used by bids_conversion pipelines that support heuristic-level
+    sidecar filtering.
+    """
+
+    if isinstance(metadata, dict):
+        for field in METADATA_FIELDS_TO_DROP:
+            metadata.pop(field, None)
+    return metadata
