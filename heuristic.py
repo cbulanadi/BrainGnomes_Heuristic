@@ -1,6 +1,13 @@
 """Heuristic for BrainGnomes bids_conversion."""
 
 
+# Some scanners/protocol exports include both `RepetitionTime` and
+# `AcquisitionDuration` in sidecars. BIDS requires those to be mutually
+# exclusive, so we explicitly remove `AcquisitionDuration` during metadata
+# post-processing.
+METADATA_FIELDS_TO_DROP = ("AcquisitionDuration",)
+
+
 def create_key(template, outtype=("nii.gz",), annotation_classes=None):
     if not template:
         raise ValueError("Template must be a valid format string")
@@ -245,3 +252,16 @@ def infotodict(seqinfo):
             info[dwi_ap].append(s.series_id)
 
     return info
+
+
+def filter_json(metadata):
+    """Drop metadata fields that trigger BIDS validator conflicts.
+
+    This hook is used by bids_conversion pipelines that support heuristic-level
+    sidecar filtering.
+    """
+
+    if isinstance(metadata, dict):
+        for field in METADATA_FIELDS_TO_DROP:
+            metadata.pop(field, None)
+    return metadata
